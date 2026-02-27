@@ -190,8 +190,15 @@ function MainApp() {
       return 0;
     }
   });
+  const [puppyName, setPuppyName] = useState(() => {
+    try {
+      return localStorage.getItem('pupName') || "Winnie";
+    } catch (e) {
+      return "Winnie";
+    }
+  });
   const [showTimeShiftModal, setShowTimeShiftModal] = useState(false);
-  const [currentView, setCurrentView] = useState<'schedule' | 'chat'>('schedule');
+  const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings'>('schedule');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -218,6 +225,12 @@ function MainApp() {
       localStorage.setItem('pupScheduleOffset', String(scheduleOffset));
     } catch (e) {}
   }, [scheduleOffset]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pupName', puppyName);
+    } catch (e) {}
+  }, [puppyName]);
 
   useEffect(() => {
     try {
@@ -273,7 +286,7 @@ function MainApp() {
     setIsAiLoading(true);
 
     try {
-      const reply = await askAmos(query);
+      const reply = await askAmos(query, puppyName);
       setChatMessages(prev => [...prev, { role: 'amos', text: reply }]);
     } catch (error) {
       setChatMessages(prev => [...prev, { role: 'amos', text: "Connection error. Try again." }]);
@@ -287,7 +300,7 @@ function MainApp() {
       const granted = await NotificationService.requestPermission();
       if (granted) {
         setNotificationsEnabled(true);
-        NotificationService.sendNotification("Notifications Enabled!", "You'll get alerts for Winnie's schedule.");
+        NotificationService.sendNotification("Notifications Enabled!", `You'll get alerts for ${puppyName}'s schedule.`);
       } else {
         alert("Please enable notification permissions in your browser settings.");
       }
@@ -308,7 +321,7 @@ function MainApp() {
           <div className="bg-blue-600 p-2 rounded-lg text-white">
             <Dog size={24} />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Winnie's <span className="text-blue-600">Pup Coach</span></h1>
+          <h1 className="text-xl font-bold tracking-tight">{puppyName}'s <span className="text-blue-600">Pup Coach</span></h1>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -477,6 +490,65 @@ function MainApp() {
             </div>
           </section>
         )}
+        {/* Settings View */}
+        {currentView === 'settings' && (
+          <section className="space-y-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-blue-600" /> App Settings
+              </h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Puppy's Name</label>
+                  <input 
+                    type="text" 
+                    value={puppyName}
+                    onChange={(e) => setPuppyName(e.target.value)}
+                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="e.g. Winnie"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">This name will be used by Amos and in notifications.</p>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                  <h3 className="font-semibold mb-2">Notifications</h3>
+                  <button 
+                    onClick={toggleNotifications}
+                    className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
+                      notificationsEnabled ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {notificationsEnabled ? <Bell size={18} className="text-blue-600" /> : <BellOff size={18} className="text-slate-400" />}
+                      <span className={notificationsEnabled ? 'text-blue-700 font-medium' : 'text-slate-600'}>
+                        {notificationsEnabled ? 'Notifications Enabled' : 'Notifications Disabled'}
+                      </span>
+                    </span>
+                    <div className={`w-10 h-6 rounded-full relative transition-colors ${notificationsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'left-5' : 'left-1'}`} />
+                    </div>
+                  </button>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                   <h3 className="font-semibold mb-2 text-red-600">Danger Zone</h3>
+                   <button 
+                    onClick={() => {
+                      if(confirm("Are you sure you want to reset all app data? This cannot be undone.")) {
+                        localStorage.clear();
+                        window.location.reload();
+                      }
+                    }}
+                    className="w-full p-3 text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors text-sm font-medium"
+                   >
+                     Reset All App Data
+                   </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Navigation Footer */}
@@ -495,7 +567,10 @@ function MainApp() {
           <MessageCircle size={24} />
           <span className="text-[10px] mt-1 font-bold">Chat</span>
         </button>
-        <button className="flex flex-col items-center text-slate-400">
+        <button 
+          onClick={() => setCurrentView('settings')}
+          className={`flex flex-col items-center transition-colors ${currentView === 'settings' ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+        >
           <Settings size={24} />
           <span className="text-[10px] mt-1 font-bold">Settings</span>
         </button>

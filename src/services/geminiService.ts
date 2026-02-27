@@ -17,7 +17,7 @@ const scheduleNotificationTool: FunctionDeclaration = {
   },
 };
 
-export async function askAmos(query: string) {
+export async function askAmos(query: string, puppyName: string = "Winnie") {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not set");
@@ -26,7 +26,7 @@ export async function askAmos(query: string) {
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: [{ parts: [{ text: query }] }],
+    contents: [{ parts: [{ text: `[Context: The puppy's name is ${puppyName}] ${query}` }] }],
     config: {
       systemInstruction: SYSTEM_PROMPT,
       tools: [{ functionDeclarations: [scheduleNotificationTool] }],
