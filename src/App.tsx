@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Dog, 
   CalendarCheck, 
@@ -13,10 +14,20 @@ import {
   BellOff,
   PlayCircle,
   X,
-  Clock
+  Clock,
+  Lightbulb,
+  LogOut,
+  Copy,
+  Mic,
+  MicOff,
+  Moon,
+  Footprints,
+  Utensils
 } from 'lucide-react';
 import { askAmos } from './services/geminiService';
 import { NotificationService } from './services/notificationService';
+import { api } from './services/api';
+import { LoginView } from './components/LoginView';
 
 interface ScheduleItem {
   time: string;
@@ -73,10 +84,10 @@ const addMinutes = (time: string, minutes: number): string => {
 
 const VideoModal = ({ url, type, onClose }: { url: string, type: 'video' | 'gif', onClose: () => void }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-    <div className="bg-white rounded-2xl overflow-hidden max-w-lg w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
-      <div className="p-4 border-b flex justify-between items-center">
-        <h3 className="font-bold text-lg">Training Demo</h3>
-        <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
+    <div className="bg-white dark:bg-slate-800 rounded-2xl overflow-hidden max-w-lg w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
+      <div className="p-4 border-b dark:border-slate-700 flex justify-between items-center">
+        <h3 className="font-bold text-lg dark:text-white">Training Demo</h3>
+        <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors dark:text-slate-300">
           <X size={24} />
         </button>
       </div>
@@ -87,7 +98,7 @@ const VideoModal = ({ url, type, onClose }: { url: string, type: 'video' | 'gif'
           <img src={url} alt="Training Demo" className="w-full h-full object-contain" />
         )}
       </div>
-      <div className="p-4 bg-slate-50 text-sm text-slate-500 text-center">
+      <div className="p-4 bg-slate-50 dark:bg-slate-900 text-sm text-slate-500 dark:text-slate-400 text-center">
         Tap outside to close
       </div>
     </div>
@@ -108,22 +119,22 @@ const TimeShiftModal = ({ currentOffset, onSave, onClose }: { currentOffset: num
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
-        <h3 className="font-bold text-lg mb-2">Shift Schedule</h3>
-        <p className="text-sm text-slate-500 mb-4">Running late? Adjust the start time and the whole day will shift.</p>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+        <h3 className="font-bold text-lg mb-2 dark:text-white">Shift Schedule</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Running late? Adjust the start time and the whole day will shift.</p>
         
         <div className="mb-6">
-          <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Day Start Time</label>
+          <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Day Start Time</label>
           <input 
             type="time" 
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="w-full text-2xl font-bold p-2 border rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full text-2xl font-bold p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
 
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl font-semibold text-slate-500 hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
             Cancel
           </button>
           <button onClick={handleSave} className="flex-1 py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm">
@@ -161,14 +172,11 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 }
 
 function MainApp() {
-  const [completedTasks, setCompletedTasks] = useState<number[]>(() => {
-    try {
-      const saved = localStorage.getItem('pupTasks');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [user, setUser] = useState<any>(null);
+  const [family, setFamily] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [completedTasks, setCompletedTasks] = useState<number[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'amos', text: string }[]>([]);
   const [userInput, setUserInput] = useState('');
@@ -190,17 +198,74 @@ function MainApp() {
       return 0;
     }
   });
-  const [puppyName, setPuppyName] = useState(() => {
-    try {
-      return localStorage.getItem('pupName') || "Winnie";
-    } catch (e) {
-      return "Winnie";
-    }
-  });
+  const [puppies, setPuppies] = useState<any[]>([]);
+  const [selectedPuppyId, setSelectedPuppyId] = useState<number | null>(null);
+  const [showAddPuppyModal, setShowAddPuppyModal] = useState(false);
+  const [newPuppyName, setNewPuppyName] = useState('');
+  const [newPuppyAge, setNewPuppyAge] = useState(8);
+  const [newPuppyBreed, setNewPuppyBreed] = useState('');
+  const [newPuppyPhoto, setNewPuppyPhoto] = useState('');
+
+  const [puppyName, setPuppyName] = useState("Winnie");
+  const [puppyBreed, setPuppyBreed] = useState("");
+  const [puppyAge, setPuppyAge] = useState(8);
+  const [dailyTip, setDailyTip] = useState<string | null>(null);
   const [showTimeShiftModal, setShowTimeShiftModal] = useState(false);
   const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings'>('schedule');
+  const [use24HourTime, setUse24HourTime] = useState(() => {
+    try {
+      return localStorage.getItem('pupUse24HourTime') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('pupDarkMode') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [isListening, setIsListening] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Check Auth on Mount
+  useEffect(() => {
+    api.checkAuth().then(data => {
+      if (data) {
+        setUser(data.user);
+        setFamily(data.family);
+        setPuppyName(data.family.puppy_name);
+        fetchData();
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const fetchData = async (puppyId?: number) => {
+    try {
+      const data = await api.getData(puppyId);
+      setCompletedTasks(data.completedTasks);
+      setDailyTip(data.tip?.content || null);
+      if (data.family) {
+        setFamily(data.family);
+      }
+      if (data.puppies) {
+        setPuppies(data.puppies);
+        setSelectedPuppyId(data.selectedPuppyId);
+        const selected = data.puppies.find((p: any) => p.id === data.selectedPuppyId);
+        if (selected) {
+          setPuppyName(selected.name);
+          setPuppyBreed(selected.breed || '');
+          setPuppyAge(selected.age_weeks || 8);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch data", e);
+    }
+  };
 
   // Memoize the adjusted schedule
   const currentSchedule = React.useMemo(() => {
@@ -218,7 +283,7 @@ function MainApp() {
       checkAndNotify(now);
     }, 1000);
     return () => clearInterval(timer);
-  }, [notificationsEnabled, lastNotifiedTask, scheduleOffset]); // Added scheduleOffset dependency
+  }, [notificationsEnabled, lastNotifiedTask, scheduleOffset]);
 
   useEffect(() => {
     try {
@@ -228,21 +293,26 @@ function MainApp() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('pupName', puppyName);
-    } catch (e) {}
-  }, [puppyName]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pupTasks', JSON.stringify(completedTasks));
-    } catch (e) {}
-  }, [completedTasks]);
-
-  useEffect(() => {
-    try {
       localStorage.setItem('pupNotifications', String(notificationsEnabled));
     } catch (e) {}
   }, [notificationsEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pupUse24HourTime', String(use24HourTime));
+    } catch (e) {}
+  }, [use24HourTime]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pupDarkMode', String(darkMode));
+      if (darkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (e) {}
+  }, [darkMode]);
 
   useEffect(() => {
     if (currentView === 'chat') {
@@ -250,11 +320,46 @@ function MainApp() {
     }
   }, [chatMessages, currentView]);
 
+  const formatTime = (timeStr: string) => {
+    if (use24HourTime) return timeStr;
+    const [h, m] = timeStr.split(':').map(Number);
+    const suffix = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h % 12 || 12;
+    return `${hour12}:${m.toString().padStart(2, '0')} ${suffix}`;
+  };
+
+  const playNapSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playNote = (freq: number, startTime: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.3, startTime + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      const now = ctx.currentTime;
+      playNote(329.63, now, 1); // E4
+      playNote(261.63, now + 0.5, 1.5); // C4
+    } catch (e) {
+      console.error("Audio playback failed", e);
+    }
+  };
+
   const checkAndNotify = (now: Date) => {
     if (!notificationsEnabled) return;
 
     const timeStr = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-    // Use currentSchedule instead of scheduleData
     const currentTask = currentSchedule.find(item => item.time === timeStr);
 
     if (currentTask && lastNotifiedTask !== currentTask.time) {
@@ -262,18 +367,35 @@ function MainApp() {
       const title = isNight ? `🌙 Night Potty: ${currentTask.task}` : `🐾 Potty Time: ${currentTask.task}`;
       NotificationService.sendNotification(title, currentTask.desc);
       setLastNotifiedTask(currentTask.time);
+
+      if (currentTask.task.toLowerCase().includes('nap')) {
+        playNapSound();
+      }
     }
   };
 
-  const toggleTask = (index: number) => {
+  const toggleTask = async (index: number) => {
+    if (!selectedPuppyId) return;
+    const isCompleted = completedTasks.includes(index);
+    // Optimistic update
     setCompletedTasks(prev => 
       prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
     );
+    
+    try {
+      await api.toggleTask(selectedPuppyId, index, !isCompleted);
+    } catch (e) {
+      // Revert if failed
+      setCompletedTasks(prev => 
+        prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+      );
+    }
   };
 
   const resetDay = () => {
     if (confirm("Reset all checkmarks for today?")) {
       setCompletedTasks([]);
+      // TODO: Add API for reset if needed, or just loop toggle
     }
   };
 
@@ -295,6 +417,48 @@ function MainApp() {
     }
   };
 
+  const handleVoiceInput = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setUserInput(transcript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  };
+
   const toggleNotifications = async () => {
     if (!notificationsEnabled) {
       const granted = await NotificationService.requestPermission();
@@ -309,272 +473,595 @@ function MainApp() {
     }
   };
 
+  const handleLogin = (user: any, family: any) => {
+    setUser(user);
+    setFamily(family);
+    setPuppyName(family.puppyName);
+    fetchData();
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    setUser(null);
+    setFamily(null);
+  };
+
+  const handleAddPuppy = async () => {
+    if (!newPuppyName.trim()) return;
+    try {
+      const res = await api.addPuppy(newPuppyName, newPuppyAge, newPuppyBreed, newPuppyPhoto);
+      setShowAddPuppyModal(false);
+      setNewPuppyName('');
+      setNewPuppyBreed('');
+      setNewPuppyPhoto('');
+      setNewPuppyAge(8);
+      fetchData(res.puppyId);
+    } catch (e) {
+      alert("Failed to add puppy");
+    }
+  };
+
+  const handleUpdateSettings = async () => {
+    if (!selectedPuppyId) return;
+    const selected = puppies.find(p => p.id === selectedPuppyId);
+    if (!selected) return;
+    try {
+      await api.updatePuppy(selectedPuppyId, puppyName, puppyAge, puppyBreed, selected.photo_url);
+      alert("Settings saved!");
+      fetchData(selectedPuppyId);
+    } catch (e) {
+      alert("Failed to update settings");
+    }
+  };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500">Loading...</div>;
+  }
+
+  if (!user) {
+    return <LoginView onLogin={handleLogin} />;
+  }
+
   const currentTimeStr = currentTime.getHours().toString().padStart(2, '0') + ":" + currentTime.getMinutes().toString().padStart(2, '0');
-  // Use currentSchedule instead of scheduleData
   const nextTask = currentSchedule.find((item, index) => !completedTasks.includes(index) && item.time >= currentTimeStr) || null;
 
   return (
-    <div className="bg-slate-50 text-slate-900 min-h-screen pb-24 font-sans">
+    <div className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 min-h-screen pb-24 font-sans transition-colors duration-200">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-50 px-4 py-4 flex justify-between items-center shadow-sm">
+      <header className="bg-white dark:bg-slate-800 border-b dark:border-slate-700 sticky top-0 z-50 px-4 py-4 flex justify-between items-center shadow-sm transition-colors duration-200">
         <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-lg text-white">
-            <Dog size={24} />
+          {puppies.find(p => p.id === selectedPuppyId)?.photo_url ? (
+            <img 
+              src={puppies.find(p => p.id === selectedPuppyId)?.photo_url} 
+              alt={puppyName} 
+              className="w-10 h-10 rounded-lg object-cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="bg-blue-600 p-2 rounded-lg text-white">
+              <Dog size={24} />
+            </div>
+          )}
+          <div className="flex flex-col">
+            <h1 className="text-xl font-bold tracking-tight leading-none">{puppyName}'s <span className="text-blue-600">Pup Coach</span></h1>
+            {puppies.length > 1 && (
+              <select 
+                value={selectedPuppyId || ''} 
+                onChange={(e) => fetchData(Number(e.target.value))}
+                className="text-xs text-slate-500 dark:text-slate-400 bg-transparent outline-none mt-1 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                {puppies.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
           </div>
-          <h1 className="text-xl font-bold tracking-tight">{puppyName}'s <span className="text-blue-600">Pup Coach</span></h1>
         </div>
         <div className="flex items-center gap-3">
           <button 
             onClick={toggleNotifications}
-            className={`p-2 rounded-full transition-colors ${notificationsEnabled ? 'text-blue-600 bg-blue-50' : 'text-slate-400 bg-slate-100'}`}
+            className={`p-2 rounded-full transition-colors ${notificationsEnabled ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-400 bg-slate-100 dark:bg-slate-700 dark:text-slate-300'}`}
           >
             {notificationsEnabled ? <Bell size={18} /> : <BellOff size={18} />}
           </button>
-          <div className="text-sm font-semibold text-slate-500 tabular-nums">
-            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          <div className="text-sm font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
+            {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !use24HourTime })}
           </div>
         </div>
       </header>
 
-      <main className="max-w-md mx-auto p-4 space-y-6">
-        {currentView === 'schedule' && (
-          <>
-            {/* Status Card */}
-            <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg transition-all">
-              <p className="text-blue-100 text-sm font-medium uppercase tracking-wider mb-1">Up Next</p>
-              <h2 className="text-2xl font-bold mb-2">{nextTask ? nextTask.task : "Sleep Time"}</h2>
-              <p className="text-blue-50/80 text-sm">{nextTask ? nextTask.desc : "Pup should be dreaming. Rest up!"}</p>
-            </div>
+      <main className="max-w-md mx-auto p-4 space-y-6 overflow-hidden">
+        <AnimatePresence mode="wait">
+          {currentView === 'schedule' && (
+            <motion.div
+              key="schedule"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-6"
+            >
+              {/* Status Card */}
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                className="bg-blue-600 rounded-2xl p-6 text-white shadow-lg"
+              >
+                <p className="text-blue-100 text-sm font-medium uppercase tracking-wider mb-1">Up Next</p>
+                <h2 className="text-2xl font-bold mb-2">{nextTask ? nextTask.task : "Sleep Time"}</h2>
+                <p className="text-blue-50/80 text-sm">{nextTask ? nextTask.desc : "Pup should be dreaming. Rest up!"}</p>
+              </motion.div>
 
-            {/* Schedule Section */}
-            <section className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-lg flex items-center gap-2">
-                  <CalendarCheck className="w-5 h-5 text-blue-600" /> Today's Schedule
-                </h3>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowTimeShiftModal(true)} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors bg-blue-50 px-2 py-1 rounded-lg">
-                    <Clock className="w-3 h-3" /> Adjust Time
-                  </button>
-                  <button onClick={resetDay} className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors px-2 py-1">
-                    <RotateCcw className="w-3 h-3" /> Reset
-                  </button>
+              {/* Daily Tip Card */}
+              {dailyTip && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/50 rounded-xl p-4 flex gap-3 items-start"
+                >
+                  <div className="bg-amber-100 dark:bg-amber-900/50 p-2 rounded-full text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                    <Lightbulb size={18} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-amber-900 dark:text-amber-100 text-sm mb-1">Daily Training Tip</h3>
+                    <p className="text-amber-800 dark:text-amber-200/80 text-xs leading-relaxed">{dailyTip}</p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Schedule Section */}
+              <section className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold text-lg flex items-center gap-2 dark:text-white">
+                    <CalendarCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" /> Today's Schedule
+                  </h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowTimeShiftModal(true)} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 transition-colors bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-lg">
+                      <Clock className="w-3 h-3" /> Adjust Time
+                    </button>
+                    <button onClick={resetDay} className="text-xs text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 flex items-center gap-1 transition-colors px-2 py-1">
+                      <RotateCcw className="w-3 h-3" /> Reset
+                    </button>
+                  </div>
                 </div>
+
+                <div className="space-y-2">
+                  {currentSchedule.map((item, index) => {
+                    const isCompleted = completedTasks.includes(index);
+                    const isActive = nextTask?.time === item.time;
+                    const isNight = NotificationService.isNightTime(item.time);
+                    
+                    const isNap = item.task.toLowerCase().includes('nap');
+                    const isPotty = item.task.toLowerCase().includes('potty') || item.task.toLowerCase().includes('out');
+                    const isFood = item.task.toLowerCase().includes('breakfast') || item.task.toLowerCase().includes('dinner') || item.task.toLowerCase().includes('lunch');
+
+                    let typeColor = 'border-slate-100 bg-white dark:border-slate-700 dark:bg-slate-800';
+                    let typeIcon = null;
+
+                    if (isActive) {
+                      typeColor = 'bg-blue-50 border-blue-200 shadow-sm ring-1 ring-blue-100 dark:bg-blue-900/40 dark:border-blue-800 dark:ring-blue-900';
+                    } else if (isNap) {
+                      typeColor = 'border-indigo-100 bg-indigo-50/30 dark:border-indigo-900/50 dark:bg-indigo-900/20';
+                      typeIcon = <Moon size={14} className="text-indigo-400 dark:text-indigo-300" />;
+                    } else if (isPotty) {
+                      typeColor = 'border-emerald-100 bg-emerald-50/30 dark:border-emerald-900/50 dark:bg-emerald-900/20';
+                      typeIcon = <Footprints size={14} className="text-emerald-500 dark:text-emerald-400" />;
+                    } else if (isFood) {
+                      typeColor = 'border-orange-100 bg-orange-50/30 dark:border-orange-900/50 dark:bg-orange-900/20';
+                      typeIcon = <Utensils size={14} className="text-orange-400 dark:text-orange-300" />;
+                    }
+
+                    return (
+                      <motion.div
+                        key={index}
+                        layout
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${typeColor}`}
+                      >
+                        <div className={`text-xs font-bold w-12 ${isNight ? 'text-indigo-400 dark:text-indigo-300' : 'text-slate-400 dark:text-slate-500'}`}>
+                          {formatTime(item.time)}
+                          {isNight && <span className="block text-[8px] uppercase">Night</span>}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            {typeIcon}
+                            <h4 className={`font-semibold text-sm transition-all flex items-center gap-2 ${isCompleted ? 'line-through opacity-40' : 'dark:text-slate-100'}`}>
+                              {item.task}
+                            </h4>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">{item.desc}</p>
+                            {item.demoUrl && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveVideo({ url: item.demoUrl!, type: item.demoType || 'video' });
+                                }}
+                                className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+                                title="Watch Demo"
+                              >
+                                <PlayCircle size={14} fill="currentColor" className="text-white dark:text-slate-800" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <motion.button 
+                          whileTap={{ scale: 0.85 }}
+                          onClick={() => toggleTask(index)} 
+                          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors ${
+                            isCompleted ? 'bg-green-500 border-green-500 text-white' : 'border-slate-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-500 bg-white dark:bg-slate-800'
+                          }`}
+                        >
+                          <AnimatePresence>
+                            {isCompleted && (
+                              <motion.div
+                                initial={{ scale: 0, rotate: -45 }}
+                                animate={{ scale: 1, rotate: 0 }}
+                                exit={{ scale: 0, rotate: 45 }}
+                                transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                              >
+                                <Check size={16} strokeWidth={3} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.button>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </section>
+            </motion.div>
+          )}
+
+          {showTimeShiftModal && (
+            <TimeShiftModal 
+              currentOffset={scheduleOffset} 
+              onSave={setScheduleOffset} 
+              onClose={() => setShowTimeShiftModal(false)} 
+            />
+          )}
+
+          {activeVideo && (
+            <VideoModal 
+              url={activeVideo.url} 
+              type={activeVideo.type} 
+              onClose={() => setActiveVideo(null)} 
+            />
+          )}
+
+          {/* AI Assistant / Amos Mode */}
+          {currentView === 'chat' && (
+            <motion.section 
+              key="chat"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-200 dark:border-slate-700 h-[calc(100vh-180px)] flex flex-col"
+            >
+              <div className="flex items-center gap-2 mb-4 shrink-0">
+                <div className="bg-amber-100 dark:bg-amber-900/50 p-2 rounded-full text-amber-600 dark:text-amber-400">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold dark:text-white">Ask Amos (AI Coach)</h3>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto mb-4 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl text-sm space-y-3 border border-slate-100 dark:border-slate-800">
+                {chatMessages.length === 0 && (
+                  <div className="text-slate-400 dark:text-slate-500 italic text-center py-8">
+                    Ask me anything about potty training, crate whining, or puppy behavior...
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`px-3 py-2 rounded-2xl max-w-[85%] ${
+                      msg.role === 'user' 
+                        ? 'bg-blue-600 text-white rounded-tr-none' 
+                        : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none shadow-sm'
+                    }`}>
+                      {msg.role === 'amos' && <span className="font-bold block text-[10px] uppercase mb-1 text-amber-600 dark:text-amber-500">Amos</span>}
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {isAiLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-2xl rounded-tl-none shadow-sm">
+                      <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce" />
+                        <div className="w-1.5 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                        <div className="w-1.5 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full animate-bounce [animation-delay:0.4s]" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
               </div>
 
-              <div className="space-y-2">
-                {currentSchedule.map((item, index) => {
-                  const isCompleted = completedTasks.includes(index);
-                  const isActive = nextTask?.time === item.time;
-                  const isNight = NotificationService.isNightTime(item.time);
-
-                  return (
-                    <div
-                      key={index}
-                      className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-                        isActive ? 'bg-blue-50 border-blue-200 shadow-sm ring-1 ring-blue-100' : 'bg-white border-slate-100'
-                      }`}
-                    >
-                      <div className={`text-xs font-bold w-12 ${isNight ? 'text-indigo-400' : 'text-slate-400'}`}>
-                        {item.time}
-                        {isNight && <span className="block text-[8px] uppercase">Night</span>}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className={`font-semibold text-sm transition-all flex items-center gap-2 ${isCompleted ? 'line-through opacity-40' : ''}`}>
-                          {item.task}
-                          {item.demoUrl && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveVideo({ url: item.demoUrl!, type: item.demoType || 'video' });
-                              }}
-                              className="text-blue-500 hover:text-blue-700 transition-colors"
-                              title="Watch Demo"
-                            >
-                              <PlayCircle size={16} fill="currentColor" className="text-white" />
-                            </button>
-                          )}
-                        </h4>
-                        <p className="text-[11px] text-slate-500 leading-tight">{item.desc}</p>
-                      </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={handleVoiceInput}
+                  className={`p-3 rounded-xl transition-colors ${
+                    isListening 
+                      ? 'bg-red-500 text-white animate-pulse' 
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                  title="Voice Input"
+                >
+                  {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+                </button>
+                <input 
+                  type="text" 
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAskAI()}
+                  placeholder="How do I stop biting?" 
+                  className="flex-1 bg-slate-100 dark:bg-slate-700 dark:text-white border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                />
+                <button 
+                  onClick={handleAskAI}
+                  disabled={isAiLoading}
+                  className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  <Send size={20} />
+                </button>
+              </div>
+            </motion.section>
+          )}
+          {/* Settings View */}
+          {currentView === 'settings' && (
+            <motion.section 
+              key="settings"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-6"
+            >
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2 dark:text-white">
+                  <Settings className="w-5 h-5 text-blue-600 dark:text-blue-400" /> App Settings
+                </h2>
+                
+                <div className="space-y-4">
+                  {/* Family Invite Code */}
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-900/50">
+                    <label className="block text-xs font-bold text-blue-600 dark:text-blue-400 uppercase mb-2">Family Invite Code</label>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 bg-white dark:bg-slate-900 p-3 rounded-lg border border-blue-200 dark:border-blue-800 font-mono text-lg font-bold tracking-widest text-center text-slate-700 dark:text-slate-300">
+                        {family?.invite_code || family?.inviteCode || 'LOADING'}
+                      </code>
                       <button 
-                        onClick={() => toggleTask(index)} 
-                        className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
-                          isCompleted ? 'bg-green-500 border-green-500 text-white scale-110' : 'border-slate-200 hover:border-blue-300'
-                        }`}
+                        onClick={() => {
+                          navigator.clipboard.writeText(family?.invite_code || family?.inviteCode);
+                          alert("Code copied!");
+                        }}
+                        className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
-                        {isCompleted && <Check size={16} strokeWidth={3} />}
+                        <Copy size={20} />
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-          </>
-        )}
-
-        {showTimeShiftModal && (
-          <TimeShiftModal 
-            currentOffset={scheduleOffset} 
-            onSave={setScheduleOffset} 
-            onClose={() => setShowTimeShiftModal(false)} 
-          />
-        )}
-
-        {activeVideo && (
-          <VideoModal 
-            url={activeVideo.url} 
-            type={activeVideo.type} 
-            onClose={() => setActiveVideo(null)} 
-          />
-        )}
-
-        {/* AI Assistant / Amos Mode */}
-        {currentView === 'chat' && (
-          <section className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 h-[calc(100vh-180px)] flex flex-col">
-            <div className="flex items-center gap-2 mb-4 shrink-0">
-              <div className="bg-amber-100 p-2 rounded-full text-amber-600">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <h3 className="font-bold">Ask Amos (AI Coach)</h3>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto mb-4 p-3 bg-slate-50 rounded-xl text-sm space-y-3 border border-slate-100">
-              {chatMessages.length === 0 && (
-                <div className="text-slate-400 italic text-center py-8">
-                  Ask me anything about potty training, crate whining, or puppy behavior...
-                </div>
-              )}
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`px-3 py-2 rounded-2xl max-w-[85%] ${
-                    msg.role === 'user' 
-                      ? 'bg-blue-600 text-white rounded-tr-none' 
-                      : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
-                  }`}>
-                    {msg.role === 'amos' && <span className="font-bold block text-[10px] uppercase mb-1 text-amber-600">Amos</span>}
-                    {msg.text}
+                    <p className="text-xs text-blue-600/80 dark:text-blue-400/80 mt-2">Share this code to let family members join your puppy's team.</p>
                   </div>
-                </div>
-              ))}
-              {isAiLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-white border border-slate-200 px-3 py-2 rounded-2xl rounded-tl-none shadow-sm">
-                    <div className="flex gap-1">
-                      <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" />
-                      <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce [animation-delay:0.2s]" />
-                      <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce [animation-delay:0.4s]" />
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Puppy's Name</label>
+                      <input 
+                        type="text" 
+                        value={puppyName}
+                        onChange={(e) => setPuppyName(e.target.value)}
+                        className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="e.g. Winnie"
+                      />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Breed</label>
+                      <input 
+                        type="text" 
+                        value={puppyBreed}
+                        onChange={(e) => setPuppyBreed(e.target.value)}
+                        className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="e.g. Golden Retriever"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Age (Weeks)</label>
+                      <input 
+                        type="number" 
+                        value={puppyAge}
+                        onChange={(e) => setPuppyAge(Number(e.target.value))}
+                        className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                        min="1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Photo URL (Optional)</label>
+                      <input 
+                        type="url" 
+                        value={puppies.find(p => p.id === selectedPuppyId)?.photo_url || ''}
+                        onChange={(e) => {
+                          const newPuppies = [...puppies];
+                          const index = newPuppies.findIndex(p => p.id === selectedPuppyId);
+                          if (index !== -1) {
+                            newPuppies[index].photo_url = e.target.value;
+                            setPuppies(newPuppies);
+                          }
+                        }}
+                        className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="https://example.com/photo.jpg"
+                      />
+                    </div>
+                    <button onClick={handleUpdateSettings} className="w-full py-3 bg-slate-800 dark:bg-slate-700 text-white rounded-xl font-bold text-sm hover:bg-slate-900 dark:hover:bg-slate-600 transition-colors">Save Puppy Details</button>
                   </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
 
-            <div className="flex gap-2 shrink-0">
-              <input 
-                type="text" 
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAskAI()}
-                placeholder="How do I stop biting?" 
-                className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-              />
-              <button 
-                onClick={handleAskAI}
-                disabled={isAiLoading}
-                className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                <Send size={20} />
-              </button>
-            </div>
-          </section>
-        )}
-        {/* Settings View */}
-        {currentView === 'settings' && (
-          <section className="space-y-6">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-blue-600" /> App Settings
-              </h2>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Puppy's Name</label>
-                  <input 
-                    type="text" 
-                    value={puppyName}
-                    onChange={(e) => setPuppyName(e.target.value)}
-                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder="e.g. Winnie"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">This name will be used by Amos and in notifications.</p>
-                </div>
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <h3 className="font-semibold mb-2 dark:text-white">Manage Puppies</h3>
+                    <button 
+                      onClick={() => setShowAddPuppyModal(true)}
+                      className="w-full p-3 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    >
+                      + Add Another Puppy
+                    </button>
+                  </div>
 
-                <div className="pt-4 border-t border-slate-100">
-                  <h3 className="font-semibold mb-2">Notifications</h3>
-                  <button 
-                    onClick={toggleNotifications}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
-                      notificationsEnabled ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {notificationsEnabled ? <Bell size={18} className="text-blue-600" /> : <BellOff size={18} className="text-slate-400" />}
-                      <span className={notificationsEnabled ? 'text-blue-700 font-medium' : 'text-slate-600'}>
-                        {notificationsEnabled ? 'Notifications Enabled' : 'Notifications Disabled'}
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <h3 className="font-semibold mb-2 text-slate-900 dark:text-white">Preferences</h3>
+                    <button 
+                      onClick={() => setDarkMode(!darkMode)}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all mb-3 ${
+                        darkMode ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-800' : 'bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={darkMode ? 'text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-600 dark:text-slate-300'}>
+                          Dark Mode
+                        </span>
                       </span>
-                    </span>
-                    <div className={`w-10 h-6 rounded-full relative transition-colors ${notificationsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'left-5' : 'left-1'}`} />
-                    </div>
-                  </button>
-                </div>
+                      <div className={`w-10 h-6 rounded-full relative transition-colors ${darkMode ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${darkMode ? 'left-5' : 'left-1'}`} />
+                      </div>
+                    </button>
 
-                <div className="pt-4 border-t border-slate-100">
-                   <h3 className="font-semibold mb-2 text-red-600">Danger Zone</h3>
-                   <button 
-                    onClick={() => {
-                      if(confirm("Are you sure you want to reset all app data? This cannot be undone.")) {
-                        localStorage.clear();
-                        window.location.reload();
-                      }
-                    }}
-                    className="w-full p-3 text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors text-sm font-medium"
-                   >
-                     Reset All App Data
-                   </button>
+                    <button 
+                      onClick={() => setUse24HourTime(!use24HourTime)}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all mb-3 ${
+                        use24HourTime ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-800' : 'bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Clock size={18} className={use24HourTime ? "text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"} />
+                        <span className={use24HourTime ? 'text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-600 dark:text-slate-300'}>
+                          {use24HourTime ? '24-Hour Time' : '12-Hour Time'}
+                        </span>
+                      </span>
+                      <div className={`w-10 h-6 rounded-full relative transition-colors ${use24HourTime ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${use24HourTime ? 'left-5' : 'left-1'}`} />
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={toggleNotifications}
+                      className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
+                        notificationsEnabled ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-800' : 'bg-white border-slate-200 dark:bg-slate-800 dark:border-slate-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {notificationsEnabled ? <Bell size={18} className="text-blue-600 dark:text-blue-400" /> : <BellOff size={18} className="text-slate-400 dark:text-slate-500" />}
+                        <span className={notificationsEnabled ? 'text-blue-700 dark:text-blue-400 font-medium' : 'text-slate-600 dark:text-slate-300'}>
+                          {notificationsEnabled ? 'Notifications Enabled' : 'Notifications Disabled'}
+                        </span>
+                      </span>
+                      <div className={`w-10 h-6 rounded-full relative transition-colors ${notificationsEnabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${notificationsEnabled ? 'left-5' : 'left-1'}`} />
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                     <h3 className="font-semibold mb-2 text-slate-600 dark:text-slate-400">Account</h3>
+                     <button 
+                      onClick={handleLogout}
+                      className="w-full p-3 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                     >
+                       <LogOut size={16} /> Sign Out
+                     </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
-        )}
+            </motion.section>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Navigation Footer */}
-      <nav className="fixed bottom-0 w-full bg-white/80 backdrop-blur-md border-t px-6 py-3 flex justify-around items-center z-50">
+      <nav className="fixed bottom-0 w-full bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border-t dark:border-slate-700 px-6 py-3 flex justify-around items-center z-50 transition-colors duration-200">
         <button 
           onClick={() => setCurrentView('schedule')}
-          className={`flex flex-col items-center transition-colors ${currentView === 'schedule' ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+          className={`flex flex-col items-center transition-colors ${currentView === 'schedule' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400'}`}
         >
           <LayoutGrid size={24} />
           <span className="text-[10px] mt-1 font-bold">Schedule</span>
         </button>
         <button 
           onClick={() => setCurrentView('chat')} 
-          className={`flex flex-col items-center transition-colors ${currentView === 'chat' ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+          className={`flex flex-col items-center transition-colors ${currentView === 'chat' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400'}`}
         >
           <MessageCircle size={24} />
           <span className="text-[10px] mt-1 font-bold">Chat</span>
         </button>
         <button 
           onClick={() => setCurrentView('settings')}
-          className={`flex flex-col items-center transition-colors ${currentView === 'settings' ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600'}`}
+          className={`flex flex-col items-center transition-colors ${currentView === 'settings' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400'}`}
         >
           <Settings size={24} />
           <span className="text-[10px] mt-1 font-bold">Settings</span>
         </button>
       </nav>
+
+      {/* Add Puppy Modal */}
+      {showAddPuppyModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowAddPuppyModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg mb-4 dark:text-white">Add a New Puppy</h3>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Name</label>
+                <input 
+                  type="text" 
+                  value={newPuppyName}
+                  onChange={(e) => setNewPuppyName(e.target.value)}
+                  className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Puppy's name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Breed (Optional)</label>
+                <input 
+                  type="text" 
+                  value={newPuppyBreed}
+                  onChange={(e) => setNewPuppyBreed(e.target.value)}
+                  className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="e.g. Golden Retriever"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Age (Weeks)</label>
+                <input 
+                  type="number" 
+                  value={newPuppyAge}
+                  onChange={(e) => setNewPuppyAge(Number(e.target.value))}
+                  className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  min="1"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Photo URL (Optional)</label>
+                <input 
+                  type="url" 
+                  value={newPuppyPhoto}
+                  onChange={(e) => setNewPuppyPhoto(e.target.value)}
+                  className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="https://example.com/photo.jpg"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowAddPuppyModal(false)} className="flex-1 py-3 rounded-xl font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleAddPuppy} className="flex-1 py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm">
+                Add Puppy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
