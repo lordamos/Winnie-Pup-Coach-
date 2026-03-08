@@ -74,5 +74,25 @@ export const api = {
       body: JSON.stringify({ name, age_weeks, breed, photo_url }),
     });
     return res.json();
+  },
+
+  async getNaps(puppyId: number) {
+    const res = await fetch(`/api/puppies/${puppyId}/naps`);
+    return res.json();
+  },
+
+  async addNap(puppyId: number, start_time: string, end_time: string, day_of_week: number) {
+    const res = await fetch(`/api/puppies/${puppyId}/naps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start_time, end_time, day_of_week }),
+    });
+    return res.json();
+  },
+
+  async deleteNap(puppyId: number, napId: number) {
+    await fetch(`/api/puppies/${puppyId}/naps/${napId}`, {
+      method: 'DELETE',
+    });
   }
 };

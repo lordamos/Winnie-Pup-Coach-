@@ -209,9 +209,10 @@ function MainApp() {
   const [puppyName, setPuppyName] = useState("Winnie");
   const [puppyBreed, setPuppyBreed] = useState("");
   const [puppyAge, setPuppyAge] = useState(8);
+  const [naps, setNaps] = useState<any[]>([]);
   const [dailyTip, setDailyTip] = useState<string | null>(null);
   const [showTimeShiftModal, setShowTimeShiftModal] = useState(false);
-  const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings'>('schedule');
+  const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings' | 'naps'>('schedule');
   const [use24HourTime, setUse24HourTime] = useState(() => {
     try {
       return localStorage.getItem('pupUse24HourTime') === 'true';
@@ -219,11 +220,18 @@ function MainApp() {
       return false;
     }
   });
+
+  useEffect(() => {
+    if (currentView === 'naps' && selectedPuppyId) {
+      api.getNaps(selectedPuppyId).then(setNaps);
+    }
+  }, [currentView, selectedPuppyId]);
   const [darkMode, setDarkMode] = useState(() => {
     try {
-      return localStorage.getItem('pupDarkMode') === 'true';
+      const saved = localStorage.getItem('pupDarkMode');
+      return saved !== null ? saved === 'true' : true;
     } catch (e) {
-      return false;
+      return true;
     }
   });
   const [isListening, setIsListening] = useState(false);
@@ -408,7 +416,7 @@ function MainApp() {
     setIsAiLoading(true);
 
     try {
-      const reply = await askAmos(query, puppyName);
+      const reply = await askAmos(query, puppyName, puppyAge, puppyBreed);
       setChatMessages(prev => [...prev, { role: 'amos', text: reply }]);
     } catch (error) {
       setChatMessages(prev => [...prev, { role: 'amos', text: "Connection error. Try again." }]);
@@ -974,6 +982,49 @@ function MainApp() {
               </div>
             </motion.section>
           )}
+          {currentView === 'naps' && (
+            <motion.section 
+              key="naps"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-6"
+            >
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2 dark:text-white">
+                  <Moon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> Enforced Naps
+                </h2>
+                <div className="space-y-4">
+                  {naps.map(nap => (
+                    <div key={nap.id} className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border dark:border-slate-700">
+                      <div>
+                        <p className="font-bold dark:text-white">{nap.start_time} - {nap.end_time}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Day: {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][nap.day_of_week]}</p>
+                      </div>
+                      <button onClick={async () => {
+                        await api.deleteNap(selectedPuppyId!, nap.id);
+                        setNaps(prev => prev.filter(n => n.id !== nap.id));
+                      }} className="text-red-500 hover:text-red-700">
+                        <X size={20} />
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={async () => {
+                    const start_time = prompt("Start Time (HH:MM)");
+                    const end_time = prompt("End Time (HH:MM)");
+                    const day_of_week = parseInt(prompt("Day of week (0-6, 0=Sun)") || "0");
+                    if (start_time && end_time && !isNaN(day_of_week)) {
+                      const res = await api.addNap(selectedPuppyId!, start_time, end_time, day_of_week);
+                      setNaps(prev => [...prev, { id: res.napId, start_time, end_time, day_of_week }]);
+                    }
+                  }} className="w-full p-3 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors text-sm font-medium">
+                    + Add New Nap
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          )}
         </AnimatePresence>
       </main>
 
@@ -992,6 +1043,13 @@ function MainApp() {
         >
           <MessageCircle size={24} />
           <span className="text-[10px] mt-1 font-bold">Chat</span>
+        </button>
+        <button 
+          onClick={() => setCurrentView('naps')}
+          className={`flex flex-col items-center transition-colors ${currentView === 'naps' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400'}`}
+        >
+          <Moon size={24} />
+          <span className="text-[10px] mt-1 font-bold">Naps</span>
         </button>
         <button 
           onClick={() => setCurrentView('settings')}

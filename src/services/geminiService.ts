@@ -1,10 +1,10 @@
 import { NotificationService } from "./notificationService";
 
-export async function askAmos(query: string, puppyName: string = "Winnie") {
+export async function askAmos(query: string, puppyName: string = "Winnie", puppyAge: number = 8, puppyBreed: string = "") {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, puppyName }),
+    body: JSON.stringify({ query, puppyName, puppyAge, puppyBreed }),
   });
 
   if (!res.ok) {

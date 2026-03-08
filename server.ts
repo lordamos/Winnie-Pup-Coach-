@@ -174,7 +174,7 @@ app.get('/api/data', authenticate, async (req: any, res) => {
 
 // Chat with Amos
 app.post('/api/chat', authenticate, async (req: any, res) => {
-  const { query, puppyName } = req.body;
+  const { query, puppyName, puppyAge, puppyBreed } = req.body;
   
   if (!process.env.GEMINI_API_KEY) {
     return res.status(500).json({ error: 'Gemini API Key not configured' });
@@ -182,7 +182,7 @@ app.post('/api/chat', authenticate, async (req: any, res) => {
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const SYSTEM_PROMPT = `You are "Amos," a master puppy trainer. Your goal is to give the .01% standard of advice for a ${puppyName}, an 8-week old medium breed puppy. The owner is home all day. Use the "Learn, Earn, Return" philosophy. Keep answers short, actionable, and focus on crate training and potty success. Never suggest punishment. Always suggest carrying the puppy to the potty spot and using a leash. If the user asks for a reminder or notification, use the schedule_notification tool.`;
+    const SYSTEM_PROMPT = `You are "Amos," a master puppy trainer. Your goal is to give the .01% standard of advice for a ${puppyAge}-week-old ${puppyBreed ? puppyBreed + ' ' : ''}puppy named ${puppyName}. The owner is home all day. Use the "Learn, Earn, Return" philosophy. Keep answers short, actionable, and focus on crate training, potty success, behavior, training techniques, and health concerns. Never suggest punishment. Always suggest carrying the puppy to the potty spot and using a leash. If the user asks for a reminder or notification, use the schedule_notification tool.`;
     
     const scheduleNotificationTool = {
       name: "schedule_notification",
@@ -258,6 +258,49 @@ app.put('/api/puppies/:id', authenticate, (req: any, res) => {
   const familyId = req.user.familyId;
   try {
     db.prepare('UPDATE puppies SET name = ?, breed = ?, age_weeks = ?, photo_url = ? WHERE id = ? AND family_id = ?').run(name, breed, age_weeks, photo_url, req.params.id, familyId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get Naps
+app.get('/api/puppies/:puppyId/naps', authenticate, (req: any, res) => {
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.puppyId, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+    const naps = db.prepare('SELECT * FROM puppy_naps WHERE puppy_id = ?').all(req.params.puppyId);
+    res.json(naps);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Add Nap
+app.post('/api/puppies/:puppyId/naps', authenticate, (req: any, res) => {
+  const { start_time, end_time, day_of_week } = req.body;
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.puppyId, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+    const result = db.prepare('INSERT INTO puppy_naps (puppy_id, start_time, end_time, day_of_week) VALUES (?, ?, ?, ?)').run(req.params.puppyId, start_time, end_time, day_of_week);
+    res.json({ success: true, napId: result.lastInsertRowid });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete Nap
+app.delete('/api/puppies/:puppyId/naps/:napId', authenticate, (req: any, res) => {
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.puppyId, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+    db.prepare('DELETE FROM puppy_naps WHERE id = ? AND puppy_id = ?').run(req.params.napId, req.params.puppyId);
     res.json({ success: true });
   } catch (err) {
     console.error(err);

@@ -41,6 +41,15 @@ db.exec(`
     FOREIGN KEY(family_id) REFERENCES families(id),
     UNIQUE(family_id, date)
   );
+
+  CREATE TABLE IF NOT EXISTS puppy_naps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    puppy_id INTEGER NOT NULL,
+    start_time TEXT NOT NULL, -- HH:MM
+    end_time TEXT NOT NULL, -- HH:MM
+    day_of_week INTEGER NOT NULL, -- 0-6
+    FOREIGN KEY(puppy_id) REFERENCES puppies(id)
+  );
 `);
 
 // Migration for multiple puppies
