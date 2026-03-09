@@ -76,8 +76,61 @@ export const api = {
     return res.json();
   },
 
+  async uploadPhoto(id: number, file: File) {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const res = await fetch(`/api/puppies/${id}/photo`, {
+      method: 'POST',
+      body: formData,
+    });
+    return res.json();
+  },
+
   async getNaps(puppyId: number) {
     const res = await fetch(`/api/puppies/${puppyId}/naps`);
+    return res.json();
+  },
+
+  async addScheduleItem(puppyId: number, time: string, task: string, desc: string, demo_url?: string, demo_type?: string) {
+    const res = await fetch(`/api/puppies/${puppyId}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ time, task, desc, demo_url, demo_type }),
+    });
+    return res.json();
+  },
+
+  async updateScheduleItem(puppyId: number, scheduleId: number, time: string, task: string, desc: string, demo_url?: string, demo_type?: string) {
+    const res = await fetch(`/api/puppies/${puppyId}/schedule/${scheduleId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ time, task, desc, demo_url, demo_type }),
+    });
+    return res.json();
+  },
+
+  async deleteScheduleItem(puppyId: number, scheduleId: number) {
+    const res = await fetch(`/api/puppies/${puppyId}/schedule/${scheduleId}`, {
+      method: 'DELETE',
+    });
+    return res.json();
+  },
+
+  async reorderSchedule(puppyId: number, scheduleIds: number[]) {
+    const res = await fetch(`/api/puppies/${puppyId}/schedule/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduleIds }),
+    });
+    return res.json();
+  },
+
+  async generatePottyBreaks(puppyId: number, startTime: string, endTime: string, intervalMinutes: number) {
+    const res = await fetch(`/api/puppies/${puppyId}/schedule/generate-potty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime, endTime, intervalMinutes }),
+    });
     return res.json();
   },
 

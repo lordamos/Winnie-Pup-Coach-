@@ -82,6 +82,17 @@ if (!hasPuppiesTable) {
       FOREIGN KEY(puppy_id) REFERENCES puppies(id),
       UNIQUE(puppy_id, date)
     );
+    CREATE TABLE puppy_schedule (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      puppy_id INTEGER NOT NULL,
+      time TEXT NOT NULL,
+      task TEXT NOT NULL,
+      desc TEXT NOT NULL,
+      demo_url TEXT,
+      demo_type TEXT,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY(puppy_id) REFERENCES puppies(id)
+    );
   `);
   
   // Migrate data
@@ -101,6 +112,51 @@ if (!hasPuppiesTable) {
     for (const t of tips) {
       db.prepare('INSERT INTO puppy_tips (puppy_id, date, content) VALUES (?, ?, ?)').run(puppyId, t.date, t.content);
     }
+  }
+}
+
+// Migration for puppy_schedule
+const hasPuppyScheduleTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='puppy_schedule'").get();
+if (!hasPuppyScheduleTable) {
+  db.exec(`
+    CREATE TABLE puppy_schedule (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      puppy_id INTEGER NOT NULL,
+      time TEXT NOT NULL,
+      task TEXT NOT NULL,
+      desc TEXT NOT NULL,
+      demo_url TEXT,
+      demo_type TEXT,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY(puppy_id) REFERENCES puppies(id)
+    );
+  `);
+
+  // Insert default schedule for existing puppies
+  const defaultSchedule = [
+    { time: "07:00", task: "Immediate Out", desc: "Carry to grass immediately. No walking!", demo_url: "https://media.giphy.com/media/3o7abAHdYvZdBNkDAS/giphy.gif", demo_type: 'gif' },
+    { time: "07:15", task: "Breakfast", desc: "Feed inside the crate for positive vibes." },
+    { time: "07:35", task: "Potty Break #2", desc: "The post-breakfast ritual." },
+    { time: "08:00", task: "Nap Time", desc: "Mandatory 2-hour crate nap." },
+    { time: "10:00", task: "Wake & Potty", desc: "Carry out again." },
+    { time: "10:15", task: "Play & Train", desc: "15 mins of tug or basic commands." },
+    { time: "11:00", task: "Nap Time", desc: "Back in the crate." },
+    { time: "13:00", task: "Lunch & Potty", desc: "Midday meal and break." },
+    { time: "14:00", task: "Nap Time", desc: "Rest is crucial for growth." },
+    { time: "16:00", task: "Wake & Potty", desc: "Afternoon break." },
+    { time: "16:30", task: "Socialization", desc: "Expose to new sounds/sights safely." },
+    { time: "17:30", task: "Dinner", desc: "Last meal of the day." },
+    { time: "18:00", task: "Potty Break", desc: "Post-dinner outing." },
+    { time: "19:00", task: "Wind Down", desc: "Calm chewing or cuddling." },
+    { time: "20:00", task: "Final Potty & Bed", desc: "Lights out in the crate." }
+  ];
+
+  const puppies = db.prepare('SELECT id FROM puppies').all() as any[];
+  const insertStmt = db.prepare('INSERT INTO puppy_schedule (puppy_id, time, task, desc, demo_url, demo_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  for (const p of puppies) {
+    defaultSchedule.forEach((item, index) => {
+      insertStmt.run(p.id, item.time, item.task, item.desc, item.demo_url || null, item.demo_type || null, index);
+    });
   }
 }
 

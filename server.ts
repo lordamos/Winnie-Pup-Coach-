@@ -1,16 +1,36 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import db from './src/db/index.ts';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { GoogleGenAI, Type } from '@google/genai';
+import multer from 'multer';
 
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-prod';
 
+// Ensure uploads directory exists
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+    cb(null, uniqueSuffix + path.extname(file.originalname))
+  }
+})
+const upload = multer({ storage: storage })
+
+app.use('/uploads', express.static(uploadDir));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -159,12 +179,15 @@ app.get('/api/data', authenticate, async (req: any, res) => {
       }
     }
 
+    const schedule = db.prepare('SELECT * FROM puppy_schedule WHERE puppy_id = ? ORDER BY sort_order ASC, time ASC').all(selectedPuppy.id);
+
     res.json({ 
       family, 
       puppies,
       selectedPuppyId: selectedPuppy.id,
       completedTasks, 
-      tip: tip || { content: "Training takes time. Be patient!" } 
+      tip: tip || { content: "Training takes time. Be patient!" },
+      schedule
     });
   } catch (err) {
     console.error(err);
@@ -245,7 +268,32 @@ app.post('/api/puppies', authenticate, (req: any, res) => {
   const familyId = req.user.familyId;
   try {
     const result = db.prepare('INSERT INTO puppies (family_id, name, breed, age_weeks, photo_url) VALUES (?, ?, ?, ?, ?)').run(familyId, name, breed, age_weeks, photo_url);
-    res.json({ success: true, puppyId: result.lastInsertRowid });
+    const puppyId = result.lastInsertRowid;
+    
+    // Insert default schedule for new puppy
+    const defaultSchedule = [
+      { time: "07:00", task: "Immediate Out", desc: "Carry to grass immediately. No walking!", demo_url: "https://media.giphy.com/media/3o7abAHdYvZdBNkDAS/giphy.gif", demo_type: 'gif' },
+      { time: "07:15", task: "Breakfast", desc: "Feed inside the crate for positive vibes." },
+      { time: "07:35", task: "Potty Break #2", desc: "The post-breakfast ritual." },
+      { time: "08:00", task: "Nap Time", desc: "Mandatory 2-hour crate nap." },
+      { time: "10:00", task: "Wake & Potty", desc: "Carry out again." },
+      { time: "10:15", task: "Play & Train", desc: "15 mins of tug or basic commands." },
+      { time: "11:00", task: "Nap Time", desc: "Back in the crate." },
+      { time: "13:00", task: "Lunch & Potty", desc: "Midday meal and break." },
+      { time: "14:00", task: "Nap Time", desc: "Rest is crucial for growth." },
+      { time: "16:00", task: "Wake & Potty", desc: "Afternoon break." },
+      { time: "16:30", task: "Socialization", desc: "Expose to new sounds/sights safely." },
+      { time: "17:30", task: "Dinner", desc: "Last meal of the day." },
+      { time: "18:00", task: "Potty Break", desc: "Post-dinner outing." },
+      { time: "19:00", task: "Wind Down", desc: "Calm chewing or cuddling." },
+      { time: "20:00", task: "Final Potty & Bed", desc: "Lights out in the crate." }
+    ];
+    const insertStmt = db.prepare('INSERT INTO puppy_schedule (puppy_id, time, task, desc, demo_url, demo_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    defaultSchedule.forEach((item, index) => {
+      insertStmt.run(puppyId, item.time, item.task, item.desc, item.demo_url || null, item.demo_type || null, index);
+    });
+
+    res.json({ success: true, puppyId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -258,6 +306,133 @@ app.put('/api/puppies/:id', authenticate, (req: any, res) => {
   const familyId = req.user.familyId;
   try {
     db.prepare('UPDATE puppies SET name = ?, breed = ?, age_weeks = ?, photo_url = ? WHERE id = ? AND family_id = ?').run(name, breed, age_weeks, photo_url, req.params.id, familyId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Upload Puppy Photo
+app.post('/api/puppies/:id/photo', authenticate, upload.single('photo'), (req: any, res) => {
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const photoUrl = `/uploads/${req.file.filename}`;
+    db.prepare('UPDATE puppies SET photo_url = ? WHERE id = ?').run(photoUrl, req.params.id);
+    
+    res.json({ success: true, photoUrl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Manage Schedule
+app.post('/api/puppies/:id/schedule', authenticate, (req: any, res) => {
+  const { time, task, desc, demo_url, demo_type } = req.body;
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+
+    const maxSort = db.prepare('SELECT MAX(sort_order) as max FROM puppy_schedule WHERE puppy_id = ?').get(req.params.id) as any;
+    const sort_order = (maxSort.max || 0) + 1;
+
+    const result = db.prepare('INSERT INTO puppy_schedule (puppy_id, time, task, desc, demo_url, demo_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)').run(req.params.id, time, task, desc, demo_url || null, demo_type || null, sort_order);
+    res.json({ success: true, id: result.lastInsertRowid });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/puppies/:id/schedule/:scheduleId', authenticate, (req: any, res) => {
+  const { time, task, desc, demo_url, demo_type } = req.body;
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+
+    db.prepare('UPDATE puppy_schedule SET time = ?, task = ?, desc = ?, demo_url = ?, demo_type = ? WHERE id = ? AND puppy_id = ?').run(time, task, desc, demo_url || null, demo_type || null, req.params.scheduleId, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/puppies/:id/schedule/:scheduleId', authenticate, (req: any, res) => {
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+
+    db.prepare('DELETE FROM puppy_schedule WHERE id = ? AND puppy_id = ?').run(req.params.scheduleId, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/puppies/:id/schedule/generate-potty', authenticate, (req: any, res) => {
+  const { startTime, endTime, intervalMinutes } = req.body;
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+
+    const maxSort = db.prepare('SELECT MAX(sort_order) as max FROM puppy_schedule WHERE puppy_id = ?').get(req.params.id) as any;
+    let currentSort = (maxSort.max || 0) + 1;
+
+    const insertStmt = db.prepare('INSERT INTO puppy_schedule (puppy_id, time, task, desc, sort_order) VALUES (?, ?, ?, ?, ?)');
+    
+    // Parse times
+    const [startH, startM] = startTime.split(':').map(Number);
+    const [endH, endM] = endTime.split(':').map(Number);
+    
+    let currentTotalMinutes = startH * 60 + startM;
+    const endTotalMinutes = endH * 60 + endM;
+
+    db.transaction(() => {
+      while (currentTotalMinutes <= endTotalMinutes) {
+        const h = Math.floor(currentTotalMinutes / 60);
+        const m = currentTotalMinutes % 60;
+        const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        
+        insertStmt.run(req.params.id, timeStr, "Potty Break", "Scheduled potty break reminder.", currentSort++);
+        
+        currentTotalMinutes += intervalMinutes;
+      }
+    })();
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/puppies/:id/schedule/reorder', authenticate, (req: any, res) => {
+  const { scheduleIds } = req.body; // Array of IDs in new order
+  const familyId = req.user.familyId;
+  try {
+    const puppy = db.prepare('SELECT id FROM puppies WHERE id = ? AND family_id = ?').get(req.params.id, familyId);
+    if (!puppy) return res.status(403).json({ error: 'Unauthorized' });
+
+    const updateStmt = db.prepare('UPDATE puppy_schedule SET sort_order = ? WHERE id = ? AND puppy_id = ?');
+    db.transaction(() => {
+      scheduleIds.forEach((id: number, index: number) => {
+        updateStmt.run(index, id, req.params.id);
+      });
+    })();
     res.json({ success: true });
   } catch (err) {
     console.error(err);

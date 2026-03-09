@@ -22,7 +22,14 @@ import {
   MicOff,
   Moon,
   Footprints,
-  Utensils
+  Utensils,
+  Map,
+  Upload,
+  Edit,
+  Trash2,
+  Plus,
+  GripVertical,
+  Dumbbell
 } from 'lucide-react';
 import { askAmos } from './services/geminiService';
 import { NotificationService } from './services/notificationService';
@@ -30,49 +37,13 @@ import { api } from './services/api';
 import { LoginView } from './components/LoginView';
 
 interface ScheduleItem {
+  id?: number;
   time: string;
   task: string;
   desc: string;
   demoUrl?: string;
   demoType?: 'video' | 'gif';
 }
-
-const scheduleData: ScheduleItem[] = [
-  { 
-    time: "07:00", 
-    task: "Immediate Out", 
-    desc: "Carry to grass immediately. No walking!",
-    demoUrl: "https://media.giphy.com/media/3o7abAHdYvZdBNkDAS/giphy.gif",
-    demoType: 'gif'
-  },
-  { time: "07:15", task: "Breakfast", desc: "Feed inside the crate for positive vibes." },
-  { time: "07:35", task: "Potty Break #2", desc: "The post-breakfast ritual." },
-  { 
-    time: "07:45", 
-    task: "Training/Play", 
-    desc: "15-30 mins of high engagement.",
-    demoUrl: "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif",
-    demoType: 'gif'
-  },
-  { 
-    time: "08:15", 
-    task: "Enforced Nap", 
-    desc: "Crate time with a stuffed Kong.",
-    demoUrl: "https://media.giphy.com/media/26BRL7YrutHKsHtJK/giphy.gif",
-    demoType: 'gif'
-  },
-  { time: "10:00", task: "Potty + Stretch", desc: "Quick relief and 10 min break." },
-  { time: "10:15", task: "Enforced Nap", desc: "Back to the den." },
-  { time: "12:00", task: "Potty + Lunch + Play", desc: "Mid-day interaction window." },
-  { time: "13:00", task: "Enforced Nap", desc: "Solid afternoon sleep." },
-  { time: "15:30", task: "Potty + Stretch", desc: "Quick break." },
-  { time: "15:45", task: "Enforced Nap", desc: "Final afternoon nap." },
-  { time: "18:00", task: "Potty + Dinner + Play", desc: "Longest freedom window." },
-  { time: "20:30", task: "Potty + Nap", desc: "Evening wind-down." },
-  { time: "22:30", task: "Water Pick-up", desc: "Pull water. Quick potty trip." },
-  { time: "00:00", task: "Midnight Chill", desc: "Low energy interaction." },
-  { time: "01:30", task: "Final Business Potty", desc: "Last trip then bed for everyone!" }
-];
 
 const addMinutes = (time: string, minutes: number): string => {
   const [h, m] = time.split(':').map(Number);
@@ -209,10 +180,14 @@ function MainApp() {
   const [puppyName, setPuppyName] = useState("Winnie");
   const [puppyBreed, setPuppyBreed] = useState("");
   const [puppyAge, setPuppyAge] = useState(8);
+  const [scheduleData, setScheduleData] = useState<ScheduleItem[]>([]);
   const [naps, setNaps] = useState<any[]>([]);
   const [dailyTip, setDailyTip] = useState<string | null>(null);
   const [showTimeShiftModal, setShowTimeShiftModal] = useState(false);
-  const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings' | 'naps'>('schedule');
+  const [showEditScheduleModal, setShowEditScheduleModal] = useState(false);
+  const [showPottyModal, setShowPottyModal] = useState(false);
+  const [editingScheduleItem, setEditingScheduleItem] = useState<ScheduleItem | null>(null);
+  const [currentView, setCurrentView] = useState<'schedule' | 'chat' | 'settings' | 'naps' | 'edit-schedule'>('schedule');
   const [use24HourTime, setUse24HourTime] = useState(() => {
     try {
       return localStorage.getItem('pupUse24HourTime') === 'true';
@@ -257,6 +232,9 @@ function MainApp() {
       const data = await api.getData(puppyId);
       setCompletedTasks(data.completedTasks);
       setDailyTip(data.tip?.content || null);
+      if (data.schedule) {
+        setScheduleData(data.schedule);
+      }
       if (data.family) {
         setFamily(data.family);
       }
@@ -276,13 +254,46 @@ function MainApp() {
   };
 
   // Memoize the adjusted schedule
+  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedItemIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedItemIndex === null || draggedItemIndex === index) return;
+    
+    const newSchedule = [...scheduleData];
+    const draggedItem = newSchedule[draggedItemIndex];
+    newSchedule.splice(draggedItemIndex, 1);
+    newSchedule.splice(index, 0, draggedItem);
+    
+    setDraggedItemIndex(index);
+    setScheduleData(newSchedule);
+  };
+
+  const handleDragEnd = async () => {
+    setDraggedItemIndex(null);
+    if (!selectedPuppyId) return;
+    
+    // Save new order to backend
+    const scheduleIds = scheduleData.map(item => item.id).filter(id => id !== undefined) as number[];
+    try {
+      await api.reorderSchedule(selectedPuppyId, scheduleIds);
+    } catch (e) {
+      console.error("Failed to save new schedule order", e);
+    }
+  };
+
   const currentSchedule = React.useMemo(() => {
     if (scheduleOffset === 0) return scheduleData;
     return scheduleData.map(item => ({
       ...item,
       time: addMinutes(item.time, scheduleOffset)
     }));
-  }, [scheduleOffset]);
+  }, [scheduleOffset, scheduleData]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -509,6 +520,25 @@ function MainApp() {
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedPuppyId || !e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    try {
+      const res = await api.uploadPhoto(selectedPuppyId, file);
+      if (res.success) {
+        const newPuppies = [...puppies];
+        const index = newPuppies.findIndex(p => p.id === selectedPuppyId);
+        if (index !== -1) {
+          newPuppies[index].photo_url = res.photoUrl;
+          setPuppies(newPuppies);
+        }
+        alert("Photo uploaded successfully!");
+      }
+    } catch (err) {
+      alert("Failed to upload photo");
+    }
+  };
+
   const handleUpdateSettings = async () => {
     if (!selectedPuppyId) return;
     const selected = puppies.find(p => p.id === selectedPuppyId);
@@ -641,8 +671,10 @@ function MainApp() {
                     const isNight = NotificationService.isNightTime(item.time);
                     
                     const isNap = item.task.toLowerCase().includes('nap');
+                    const isWalk = item.task.toLowerCase().includes('walk');
                     const isPotty = item.task.toLowerCase().includes('potty') || item.task.toLowerCase().includes('out');
                     const isFood = item.task.toLowerCase().includes('breakfast') || item.task.toLowerCase().includes('dinner') || item.task.toLowerCase().includes('lunch');
+                    const isTrain = item.task.toLowerCase().includes('train') || item.task.toLowerCase().includes('play');
 
                     let typeColor = 'border-slate-100 bg-white dark:border-slate-700 dark:bg-slate-800';
                     let typeIcon = null;
@@ -652,12 +684,18 @@ function MainApp() {
                     } else if (isNap) {
                       typeColor = 'border-indigo-100 bg-indigo-50/30 dark:border-indigo-900/50 dark:bg-indigo-900/20';
                       typeIcon = <Moon size={14} className="text-indigo-400 dark:text-indigo-300" />;
+                    } else if (isWalk) {
+                      typeColor = 'border-teal-100 bg-teal-50/30 dark:border-teal-900/50 dark:bg-teal-900/20';
+                      typeIcon = <Map size={14} className="text-teal-500 dark:text-teal-400" />;
                     } else if (isPotty) {
                       typeColor = 'border-emerald-100 bg-emerald-50/30 dark:border-emerald-900/50 dark:bg-emerald-900/20';
                       typeIcon = <Footprints size={14} className="text-emerald-500 dark:text-emerald-400" />;
                     } else if (isFood) {
                       typeColor = 'border-orange-100 bg-orange-50/30 dark:border-orange-900/50 dark:bg-orange-900/20';
                       typeIcon = <Utensils size={14} className="text-orange-400 dark:text-orange-300" />;
+                    } else if (isTrain) {
+                      typeColor = 'border-blue-100 bg-blue-50/30 dark:border-blue-900/50 dark:bg-blue-900/20';
+                      typeIcon = <Dumbbell size={14} className="text-blue-400 dark:text-blue-300" />;
                     }
 
                     return (
@@ -819,6 +857,125 @@ function MainApp() {
               </div>
             </motion.section>
           )}
+          {currentView === 'edit-schedule' && (
+            <motion.section 
+              key="edit-schedule"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-6"
+            >
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold flex items-center gap-2 dark:text-white">
+                    <Edit className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> Edit Schedule
+                  </h2>
+                  <button 
+                    onClick={() => setCurrentView('settings')}
+                    className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  >
+                    Back to Settings
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  {scheduleData.map((item, index) => {
+                    const isNap = item.task.toLowerCase().includes('nap');
+                    const isWalk = item.task.toLowerCase().includes('walk');
+                    const isPotty = item.task.toLowerCase().includes('potty') || item.task.toLowerCase().includes('out');
+                    const isFood = item.task.toLowerCase().includes('breakfast') || item.task.toLowerCase().includes('dinner') || item.task.toLowerCase().includes('lunch');
+                    const isTrain = item.task.toLowerCase().includes('train') || item.task.toLowerCase().includes('play');
+
+                    let typeColor = 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900';
+                    let typeIcon = null;
+
+                    if (isNap) {
+                      typeColor = 'border-indigo-200 bg-indigo-50/50 dark:border-indigo-800/50 dark:bg-indigo-900/30';
+                      typeIcon = <Moon size={16} className="text-indigo-500 dark:text-indigo-400" />;
+                    } else if (isWalk) {
+                      typeColor = 'border-teal-200 bg-teal-50/50 dark:border-teal-800/50 dark:bg-teal-900/30';
+                      typeIcon = <Map size={16} className="text-teal-500 dark:text-teal-400" />;
+                    } else if (isPotty) {
+                      typeColor = 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-800/50 dark:bg-emerald-900/30';
+                      typeIcon = <Footprints size={16} className="text-emerald-500 dark:text-emerald-400" />;
+                    } else if (isFood) {
+                      typeColor = 'border-orange-200 bg-orange-50/50 dark:border-orange-800/50 dark:bg-orange-900/30';
+                      typeIcon = <Utensils size={16} className="text-orange-500 dark:text-orange-400" />;
+                    } else if (isTrain) {
+                      typeColor = 'border-blue-200 bg-blue-50/50 dark:border-blue-800/50 dark:bg-blue-900/30';
+                      typeIcon = <Dumbbell size={16} className="text-blue-500 dark:text-blue-400" />;
+                    }
+
+                    return (
+                    <div 
+                      key={item.id || index} 
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${typeColor} ${draggedItemIndex === index ? 'opacity-50 scale-95' : ''}`}
+                    >
+                      <div className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <GripVertical size={20} />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-xs font-bold text-slate-600 dark:text-slate-300 bg-white/50 dark:bg-black/20 px-2 py-0.5 rounded">
+                            {formatTime(item.time)}
+                          </span>
+                          {typeIcon}
+                          <span className="font-bold text-sm dark:text-white">{item.task}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{item.desc}</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setEditingScheduleItem(item);
+                          setShowEditScheduleModal(true);
+                        }}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
+                      >
+                        <Edit size={18} />
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          if (confirm('Are you sure you want to delete this task?')) {
+                            if (selectedPuppyId && item.id) {
+                              await api.deleteScheduleItem(selectedPuppyId, item.id);
+                              fetchData(selectedPuppyId);
+                            }
+                          }
+                        }}
+                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  )})}
+                </div>
+
+                <div className="flex gap-3 mt-4">
+                  <button 
+                    onClick={() => {
+                      setEditingScheduleItem(null);
+                      setShowEditScheduleModal(true);
+                    }}
+                    className="flex-1 p-3 border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 font-medium"
+                  >
+                    <Plus size={20} /> Add Task
+                  </button>
+                  <button 
+                    onClick={() => setShowPottyModal(true)}
+                    className="flex-1 p-3 border-2 border-dashed border-emerald-300 dark:border-emerald-800 text-emerald-600 dark:text-emerald-500 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center justify-center gap-2 font-medium"
+                  >
+                    <Plus size={20} /> Potty Breaks
+                  </button>
+                </div>
+              </div>
+            </motion.section>
+          )}
+
           {/* Settings View */}
           {currentView === 'settings' && (
             <motion.section 
@@ -888,26 +1045,38 @@ function MainApp() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Photo URL (Optional)</label>
-                      <input 
-                        type="url" 
-                        value={puppies.find(p => p.id === selectedPuppyId)?.photo_url || ''}
-                        onChange={(e) => {
-                          const newPuppies = [...puppies];
-                          const index = newPuppies.findIndex(p => p.id === selectedPuppyId);
-                          if (index !== -1) {
-                            newPuppies[index].photo_url = e.target.value;
-                            setPuppies(newPuppies);
-                          }
-                        }}
-                        className="w-full p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                        placeholder="https://example.com/photo.jpg"
-                      />
+                      <div className="flex gap-2">
+                        <input 
+                          type="url" 
+                          value={puppies.find(p => p.id === selectedPuppyId)?.photo_url || ''}
+                          onChange={(e) => {
+                            const newPuppies = [...puppies];
+                            const index = newPuppies.findIndex(p => p.id === selectedPuppyId);
+                            if (index !== -1) {
+                              newPuppies[index].photo_url = e.target.value;
+                              setPuppies(newPuppies);
+                            }
+                          }}
+                          className="flex-1 p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="https://example.com/photo.jpg"
+                        />
+                        <label className="cursor-pointer bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 p-3 rounded-xl flex items-center justify-center transition-colors border border-slate-200 dark:border-slate-600">
+                          <Upload size={20} />
+                          <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                        </label>
+                      </div>
                     </div>
                     <button onClick={handleUpdateSettings} className="w-full py-3 bg-slate-800 dark:bg-slate-700 text-white rounded-xl font-bold text-sm hover:bg-slate-900 dark:hover:bg-slate-600 transition-colors">Save Puppy Details</button>
                   </div>
 
                   <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
                     <h3 className="font-semibold mb-2 dark:text-white">Manage Puppies</h3>
+                    <button 
+                      onClick={() => setCurrentView('edit-schedule')}
+                      className="w-full p-3 mb-3 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    >
+                      <Edit size={18} /> Edit {puppyName}'s Schedule
+                    </button>
                     <button 
                       onClick={() => setShowAddPuppyModal(true)}
                       className="w-full p-3 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors text-sm font-medium flex items-center justify-center gap-2"
@@ -1059,6 +1228,177 @@ function MainApp() {
           <span className="text-[10px] mt-1 font-bold">Settings</span>
         </button>
       </nav>
+
+      {/* Potty Breaks Modal */}
+      {showPottyModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowPottyModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg mb-4 dark:text-white">
+              Generate Potty Breaks
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              Automatically add recurring potty break reminders to your schedule.
+            </p>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!selectedPuppyId) return;
+              
+              const formData = new FormData(e.currentTarget);
+              const startTime = formData.get('startTime') as string;
+              const endTime = formData.get('endTime') as string;
+              const intervalMinutes = Number(formData.get('intervalMinutes'));
+              
+              try {
+                await api.generatePottyBreaks(selectedPuppyId, startTime, endTime, intervalMinutes);
+                setShowPottyModal(false);
+                fetchData(selectedPuppyId);
+              } catch (err) {
+                alert("Failed to generate potty breaks");
+              }
+            }}>
+              <div className="space-y-4 mb-6">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Start Time</label>
+                    <input 
+                      type="time" 
+                      name="startTime"
+                      defaultValue="07:00"
+                      required
+                      className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">End Time</label>
+                    <input 
+                      type="time" 
+                      name="endTime"
+                      defaultValue="21:00"
+                      required
+                      className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Frequency</label>
+                  <select 
+                    name="intervalMinutes"
+                    defaultValue="120"
+                    className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="30">Every 30 minutes</option>
+                    <option value="60">Every 1 hour</option>
+                    <option value="90">Every 1.5 hours</option>
+                    <option value="120">Every 2 hours</option>
+                    <option value="180">Every 3 hours</option>
+                    <option value="240">Every 4 hours</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowPottyModal(false)} 
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                >
+                  Generate
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Schedule Modal */}
+      {showEditScheduleModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowEditScheduleModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-lg mb-4 dark:text-white">
+              {editingScheduleItem ? 'Edit Task' : 'Add New Task'}
+            </h3>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!selectedPuppyId) return;
+              
+              const formData = new FormData(e.currentTarget);
+              const time = formData.get('time') as string;
+              const task = formData.get('task') as string;
+              const desc = formData.get('desc') as string;
+              
+              try {
+                if (editingScheduleItem?.id) {
+                  await api.updateScheduleItem(selectedPuppyId, editingScheduleItem.id, time, task, desc);
+                } else {
+                  await api.addScheduleItem(selectedPuppyId, time, task, desc);
+                }
+                setShowEditScheduleModal(false);
+                fetchData(selectedPuppyId);
+              } catch (err) {
+                alert("Failed to save schedule item");
+              }
+            }}>
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Time</label>
+                  <input 
+                    type="time" 
+                    name="time"
+                    defaultValue={editingScheduleItem?.time || "12:00"}
+                    required
+                    className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Task Name</label>
+                  <input 
+                    type="text" 
+                    name="task"
+                    defaultValue={editingScheduleItem?.task || ""}
+                    required
+                    placeholder="e.g. Potty Break"
+                    className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Description</label>
+                  <textarea 
+                    name="desc"
+                    defaultValue={editingScheduleItem?.desc || ""}
+                    required
+                    placeholder="What should happen during this time?"
+                    className="w-full p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none resize-none h-24"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowEditScheduleModal(false)} 
+                  className="flex-1 py-3 rounded-xl font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  Save Task
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Puppy Modal */}
       {showAddPuppyModal && (
